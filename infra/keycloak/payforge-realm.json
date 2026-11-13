@@ -1,0 +1,126 @@
+{
+  "realm": "payforge",
+  "enabled": true,
+  "displayName": "PayForge",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "accessTokenLifespan": 900,
+
+  "roles": {
+    "realm": [
+      { "name": "customer", "description": "Can move money between their own accounts" },
+      { "name": "platform-admin", "description": "Operator with full read access" }
+    ]
+  },
+
+  "clientScopes": [
+    {
+      "name": "accounts:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "accounts:write",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "ledger:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "transfers:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "transfers:write",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
+      "name": "platform:admin",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    }
+  ],
+
+  "clients": [
+    {
+      "clientId": "payforge-api",
+      "name": "PayForge customer API",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "accounts:read",
+        "accounts:write",
+        "ledger:read",
+        "transfers:read",
+        "transfers:write"
+      ]
+    },
+    {
+      "clientId": "payforge-admin",
+      "name": "PayForge operator API",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "accounts:read",
+        "accounts:write",
+        "ledger:read",
+        "transfers:read",
+        "transfers:write",
+        "platform:admin"
+      ]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@payforge.dev",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Fernandes",
+      "realmRoles": ["customer"],
+      "credentials": [{ "type": "password", "value": "alice123", "temporary": false }]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@payforge.dev",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Iyer",
+      "realmRoles": ["customer"],
+      "credentials": [{ "type": "password", "value": "bob123", "temporary": false }]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@payforge.dev",
+      "emailVerified": true,
+      "firstName": "Platform",
+      "lastName": "Admin",
+      "realmRoles": ["platform-admin"],
+      "credentials": [{ "type": "password", "value": "admin123", "temporary": false }]
+    }
+  ]
+}
