@@ -222,10 +222,10 @@ The gateway is not the only trust boundary: each service validates the JWT itsel
 ## Build and test
 
 ```bash
-mvn verify                                    # compiles all modules
+mvn verify                                    # compiles and tests all modules
 docker compose up --build -d                  # full stack
 ./scripts/smoke-test.sh                       # end-to-end assertions
-mvn -pl ledger-service test                   # a single module
+mvn -pl ledger-service -am test               # a single module
 ```
 
 CI (`.github/workflows/build.yml`) runs `mvn verify` on every push and pull request, then builds each service image without pushing.
