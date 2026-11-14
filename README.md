@@ -1,6 +1,6 @@
 # PayForge
 
-A double-entry payments backend built with Java 21 and Spring Boot 3: three domain services behind an API gateway, money moved by balanced journal entries, domain events published through a transactional outbox, and OAuth2 scopes enforced at every hop.
+A double-entry payments backend built with Java 21 and Spring Boot 3: four domain services behind an API gateway, money moved by balanced journal entries, domain events published through a transactional outbox, and OAuth2 scopes enforced at every hop.
 
 ![Java](https://img.shields.io/badge/Java-21-4A2E1F?style=flat-square&logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3-6B4226?style=flat-square&logo=springboot&logoColor=white)
@@ -21,6 +21,7 @@ PayForge is built around the constraint that money must never be created, destro
 - **Every movement is a balanced journal entry.** Debits and credits are written together and must net to zero, so the ledger cannot drift.
 - **A repeated request cannot charge twice.** The idempotency key is a unique database constraint, not an in-memory check.
 - **A rollback cannot leave a phantom event.** Events are written to an outbox in the same transaction as the state change, then relayed to Kafka.
+- **Consumers are idempotent by construction.** The notifications projection is keyed by event, so at-least-once delivery cannot produce duplicate rows.
 
 ## Architecture
 
@@ -37,11 +38,13 @@ flowchart LR
     AC["account-service<br/>:8081<br/>customers · accounts"]
     TX["transfer-service<br/>:8083<br/>transfer saga"]
     LG["ledger-service<br/>:8082<br/>journal entries"]
+    NT["notifications-service<br/>:8084<br/>event projection"]
   end
 
   GW --> AC
   GW --> TX
   GW --> LG
+  GW --> NT
 
   TX -->|"resolve account"| AC
   TX -->|"post balanced journal"| LG
@@ -49,10 +52,12 @@ flowchart LR
   AC -. "outbox" .-> K{{"Kafka"}}
   TX -. "outbox" .-> K
   LG -. "outbox" .-> K
+  K -. "transfer.*" .-> NT
 
   AC --> PG1[("account_db")]
   LG --> PG2[("ledger_db")]
   TX --> PG3[("transfer_db")]
+  NT --> PG4[("notifications_db")]
 
   GW --- R[("Redis<br/>rate limiting")]
   KC -. "JWKS" .-> GW
@@ -76,6 +81,16 @@ POST /api/v1/transfers          Idempotency-Key: 3f9c...
 
 Step 4 is idempotent on `transfer:<id>`, so a retry after an ambiguous failure returns the original entry instead of posting a second one. That is what makes the `PENDING` state safe to retry.
 
+### What the consumer does with those events
+
+`notifications-service` subscribes to `payforge.transfer.events` and writes a read model:
+
+```
+notification   event_key (unique) = "<transferId>:<status>", kind, accounts, amount, message, created_at
+```
+
+Two properties matter. The row is keyed by the event, so a redelivery is a no-op rather than a second notification. And the projection is disposable: if the table is dropped, replaying the topic rebuilds it, because the source of truth is the transfer and its ledger entry, not the feed.
+
 ## Services
 
 | Service | Port | Responsibility |
@@ -84,6 +99,7 @@ Step 4 is idempotent on `transfer:<id>`, so a retry after an ambiguous failure r
 | `account-service` | 8081 | Customers and accounts; allocates account numbers; emits `account.opened` |
 | `ledger-service` | 8082 | Ledger accounts, immutable journal entries, balances and statements; enforces double-entry |
 | `transfer-service` | 8083 | Transfer saga, idempotency, outcome recording, `transfer.*` events |
+| `notifications-service` | 8084 | Consumes `transfer.*` and projects them into a per-account notification feed; duplicate-safe |
 | `commons` | — | Shared outbox, correlation filter, internal-token filter, error contract, Kafka error handling |
 
 ## Domain model
@@ -115,6 +131,7 @@ Invariants enforced in `LedgerService`:
 | Relay publishes, then crashes before commit | The event is re-published. At-least-once delivery, hence idempotent consumers |
 | Several relay instances | `FOR UPDATE SKIP LOCKED` hands each row to exactly one relay |
 | Consumer keeps failing | `DefaultErrorHandler` retries three times, then routes to `<topic>.dlt` |
+| The same event is delivered twice | `notifications.event_key` (`transferId:status`) is unique; the projection skips or discards the duplicate |
 
 There is deliberately **no** database transaction spanning a remote call. Holding row locks during a network round trip turns a slow dependency into an outage, so the transfer row is committed first and its state machine carries the rest.
 
@@ -139,8 +156,8 @@ Demo users, all in realm `payforge`:
 
 | User | Password | Client | Scopes |
 | --- | --- | --- | --- |
-| `alice` | `alice123` | `payforge-api` | accounts, transfers, ledger read/write |
-| `bob` | `bob123` | `payforge-api` | accounts, transfers, ledger read/write |
+| `alice` | `alice123` | `payforge-api` | accounts, transfers, ledger read/write, notifications read |
+| `bob` | `bob123` | `payforge-api` | accounts, transfers, ledger read/write, notifications read |
 | `admin` | `admin123` | `payforge-admin` | everything, including `platform:admin` |
 
 Verify the whole thing end to end:
@@ -149,7 +166,7 @@ Verify the whole thing end to end:
 ./scripts/smoke-test.sh
 ```
 
-It registers two customers, opens accounts, funds one from the settlement account, moves money, replays the same `Idempotency-Key` and asserts the balances are 3750 / 1250.
+It registers two customers, opens accounts, funds one from the settlement account, moves money, replays the same `Idempotency-Key`, asserts the balances are 3750 / 1250, and waits for the transfer event to appear as a `TRANSFER_COMPLETED` notification.
 
 Stop everything, keeping data: `docker compose down`. Wipe volumes too: `./stop.sh`.
 
@@ -184,11 +201,12 @@ curl -s -X POST http://localhost:8080/api/v1/transfers \
   -d '{"sourceAccountNumber":"PF0000000001","targetAccountNumber":"PF0000000002","amount":1250.00,"currency":"INR","note":"rent"}'
 ```
 
-Read the ledger:
+Read the ledger, then the notification feed the consumer built from the event:
 
 ```bash
 curl -s http://localhost:8080/api/v1/ledger/accounts/CUST-PF0000000001/balance -H "Authorization: Bearer $TOKEN"
 curl -s http://localhost:8080/api/v1/ledger/accounts/CUST-PF0000000001/statement -H "Authorization: Bearer $TOKEN"
+curl -s "http://localhost:8080/api/v1/notifications?accountNumber=PF0000000001" -H "Authorization: Bearer $TOKEN"
 ```
 
 Internal endpoints (`/internal/**`) are not routed by the gateway and require the shared internal token. They exist for service-to-service calls only.
@@ -212,12 +230,12 @@ The gateway is not the only trust boundary: each service validates the JWT itsel
 
 **Known simplifications**, each deliberate and worth being able to defend:
 
-- One PostgreSQL container with three databases rather than three instances. Isolated schemas and logins; not isolated failure domains.
+- One PostgreSQL container with four databases rather than four instances. Isolated schemas and logins; not isolated failure domains.
 - A single-broker Kafka in KRaft mode. Replication factors are 1.
 - Keycloak runs in dev mode over HTTP, with a shared internal token between services instead of mTLS.
 - Customers can create other customers in this demo. In a real product that endpoint belongs to onboarding and staff tooling.
 - No circuit breaker on the ledger client yet; a `503` plus a retryable transfer is the current backstop.
-- No event consumers yet: events reach Kafka, but notifications and audit projections are on the roadmap.
+- Notifications are stored, not delivered: there is no email or push channel, and the feed is a simple newest-first query rather than a cursor-paginated stream.
 
 ## Build and test
 
@@ -228,11 +246,13 @@ docker compose up --build -d                  # full stack
 mvn -pl ledger-service -am test               # a single module
 ```
 
+For a faster loop, `scripts/start-local.sh` runs the five jars from `target/` against the Compose infrastructure (logs in `target/local-logs/`); `scripts/stop-local.sh` stops them.
+
 CI (`.github/workflows/build.yml`) runs `mvn verify` on every push and pull request, then builds each service image without pushing.
 
 ## Roadmap
 
-- Consume `transfer.*` events into a notifications service and an append-only audit projection
+- Append-only audit projection built from the same event stream
 - Circuit breaker and bounded retries on the ledger client
 - Reconciliation job for transfers left `PENDING`
 - A browser UI using OAuth2 with PKCE

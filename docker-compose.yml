@@ -129,6 +129,23 @@ services:
       ledger-service:
         condition: service_started
 
+  notifications-service:
+    build:
+      context: .
+      args:
+        MODULE: notifications-service
+    environment:
+      <<: *service-env
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
   gateway:
     build:
       context: .
@@ -139,6 +156,7 @@ services:
       ACCOUNT_URL: http://account-service:8081
       LEDGER_URL: http://ledger-service:8082
       TRANSFER_URL: http://transfer-service:8083
+      NOTIFICATIONS_URL: http://notifications-service:8084
       JWT_ISSUER: http://localhost:8180/realms/payforge
       JWT_JWK_SET_URI: http://keycloak:8080/realms/payforge/protocol/openid-connect/certs
       UI_ORIGIN: http://localhost:3000

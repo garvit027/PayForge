@@ -1,0 +1,55 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: notifications-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:notifications_db}
+    username: ${DB_USER:payforge}
+    password: ${DB_PASSWORD:payforge}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      group-id: notifications-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+
+payforge:
+  internal:
+    token: ${INTERNAL_TOKEN:local-dev-internal-token}
+  security:
+    issuer: ${JWT_ISSUER:http://localhost:8180/realms/payforge}
+    jwk-set-uri: ${JWT_JWK_SET_URI:http://localhost:8180/realms/payforge/protocol/openid-connect/certs}
+  topics:
+    transfer-events: payforge.transfer.events
+  consumer:
+    concurrency: 2
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

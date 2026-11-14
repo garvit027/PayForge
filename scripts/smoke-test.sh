@@ -84,5 +84,19 @@ echo "  bob:   $BOB_BALANCE INR (expected 1250.0000)"
 [ "$ALICE_BALANCE" = "3750.0000" ] || fail "alice balance wrong"
 [ "$BOB_BALANCE" = "1250.0000" ] || fail "bob balance wrong"
 
+echo "→ waiting for the transfer event to be projected into notifications"
+for _ in $(seq 1 30); do
+  COUNT=$(curl -fsS "$GATEWAY/api/v1/notifications?accountNumber=$ALICE_NUMBER" "${auth[@]}" \
+    | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)
+  [ "$COUNT" -gt 0 ] && break
+  sleep 1
+done
+
+NOTIFICATION=$(curl -fsS "$GATEWAY/api/v1/notifications?accountNumber=$ALICE_NUMBER" "${auth[@]}")
+KIND=$(echo "$NOTIFICATION" | python3 -c 'import json,sys; rows=json.load(sys.stdin); print(rows[0]["kind"] if rows else "")')
+[ "$KIND" = "TRANSFER_COMPLETED" ] \
+  && pass "notification projected: $KIND" \
+  || fail "notification feed did not contain TRANSFER_COMPLETED (got '${KIND:-nothing}')"
+
 echo
 printf '\033[32mAll checks passed.\033[0m\n'

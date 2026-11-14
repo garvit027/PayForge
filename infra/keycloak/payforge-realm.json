@@ -41,6 +41,11 @@
       "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
     },
     {
+      "name": "notifications:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
+    },
+    {
       "name": "platform:admin",
       "protocol": "openid-connect",
       "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" }
@@ -66,7 +71,8 @@
         "accounts:write",
         "ledger:read",
         "transfers:read",
-        "transfers:write"
+        "transfers:write",
+        "notifications:read"
       ]
     },
     {
@@ -86,6 +92,7 @@
         "ledger:read",
         "transfers:read",
         "transfers:write",
+        "notifications:read",
         "platform:admin"
       ]
     }

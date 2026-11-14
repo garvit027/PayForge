@@ -2,3 +2,4 @@
 create database account_db;
 create database ledger_db;
 create database transfer_db;
+create database notifications_db;
